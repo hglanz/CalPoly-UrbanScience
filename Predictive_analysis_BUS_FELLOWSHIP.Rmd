@@ -1,0 +1,240 @@
+---
+title: "regression_analysis_rmarkdown"
+author: "Conor Folan"
+date: "3/9/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries, include=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(lubridate)
+library(readr)
+library(caret)
+library(party)
+library(randomForest)
+library(GGally)
+
+
+```
+
+
+```{r}
+Demographics <- read_csv("Yearly State Demographic Info.csv") %>%
+  filter(state_full != "Alaska")%>%
+  mutate(miles_traveled_less_10000 = `Miles_Traveled_<5000` + `Miles_Traveled_5000-9999`,
+         last_car_less_4000 = `Last_Car_<$20000`+ `Last_Car_$20000-29999`+ `Last_Car_$30000-39999`) %>%
+  select(state_full, Region, Total_Population, Median_Household_Income, Median_Home_Value, `Pop. per Sq. Mi.`, `Gasoline : Average`, year, miles_traveled_less_10000, last_car_less_4000) 
+
+colnames(Demographics)[6] <- "pop_per_sq_mi"
+colnames(Demographics)[7] <- "yearly_gas_spending"
+```
+
+```{r incentives}
+incentives_join <- read_csv("incentives_join.csv") %>%
+  mutate(Date = as.Date(Date),
+         year = year(Date),
+         month = month(Date)) %>%
+  select(-Date)
+names(incentives_join)[1] <- "state"
+
+
+  
+
+```
+```{r}
+train1 <- read_csv("training_data.csv") %>%
+  mutate(state = fct_relevel(state))
+test1 <- read_csv("testing_data.csv") %>%
+  mutate(state = fct_relevel(state))
+
+
+
+data <- rbind(train1, test1)
+
+data <- left_join(data,Demographics, by = c("state_full", "year"))
+
+data <- left_join(data, incentives_join, by = c("state", "year", "month")) %>%
+  mutate(timestamp = as.POSIXct(timestamp,  format = "%m/%d/%y"))
+
+data[is.na(data)] <- 0
+
+training_data <- data %>%
+  filter(timestamp <= date("2019-09-01")) 
+testing_data <- data %>%
+  filter(timestamp >= date("2019-10-01"))
+```
+
+
+```{r model training}
+reg_train_rel = lm(relative ~ (timestamp) + average_price + temp + Total_Population + Median_Household_Income + Median_Home_Value + pop_per_sq_mi+ yearly_gas_spending +  miles_traveled_less_10000 + last_car_less_4000 + Region + Exem_total + Rebate_total + Tax_total + GNT_total + Other_Total + Loans_Total, data = training_data)
+
+reg_train_tot = lm(alternative ~ timestamp + average_price + temp + Total_Population + Median_Household_Income + Median_Home_Value + pop_per_sq_mi+ yearly_gas_spending +  miles_traveled_less_10000 + last_car_less_4000 + Region + Exem_total + Rebate_total + Tax_total + GNT_total + Other_Total + Loans_Total, data = training_data)
+
+knn_train_rel <- knnreg(relative ~ timestamp + average_price + temp + Total_Population + Median_Household_Income + Median_Home_Value + pop_per_sq_mi+ yearly_gas_spending +  miles_traveled_less_10000 + last_car_less_4000 + Region + Exem_total + Rebate_total + Tax_total + GNT_total + Other_Total + Loans_Total, data = training_data, k = 5)
+
+knn_train_tot <- knnreg(alternative ~ month*year + average_price + temp + Total_Population + Median_Household_Income + Median_Home_Value + pop_per_sq_mi+ yearly_gas_spending +  miles_traveled_less_10000 + last_car_less_4000 + Region + Exem_total + Rebate_total + Tax_total + GNT_total + Other_Total + Loans_Total, data = training_data, k = 5)
+
+tree_train_tot <- ctree(alternative ~ as.numeric(timestamp) + average_price + temp + Total_Population + Median_Household_Income + Median_Home_Value + pop_per_sq_mi+ yearly_gas_spending +  miles_traveled_less_10000 + last_car_less_4000 + as.factor(Region) + Exem_total + Rebate_total + Tax_total + GNT_total + Other_Total + Loans_Total,data = training_data)
+
+forrest_tot <- randomForest(alternative ~   average_price + temp + Total_Population + Median_Household_Income + Median_Home_Value + pop_per_sq_mi+ yearly_gas_spending +  miles_traveled_less_10000 + last_car_less_4000 ,data = training_data, mtry = 4, ntree = 500)
+```
+```{r error analysis}
+error_analysis <- testing_data %>% 
+  mutate(reg_prediction_rel = predict(reg_train_rel, newdata = testing_data),
+         knn_prediction_rel = predict(knn_train_rel, newdata = testing_data),
+         reg_prediction_tot = predict(reg_train_tot, newdata = testing_data), 
+         knn_prediction_tot = predict(knn_train_tot, newdata = testing_data), 
+         tree_prediction_tot =predict(tree_train_tot, newdata = testing_data),
+         forrest_prediction_tot = predict(forrest_tot, newdata = testing_data)) %>%
+  select(state, timestamp, state_full, year, month, alternative,reg_prediction_rel, knn_prediction_rel, relative,
+         reg_prediction_tot,knn_prediction_tot, tree_prediction_tot, forrest_prediction_tot) %>%
+  mutate(reg_percent_error_rel = abs((reg_prediction_rel - relative)/relative)*100,
+         knn_percent_error_rel = abs((knn_prediction_rel - relative)/relative)*100, 
+         reg_percent_error_tot = abs((reg_prediction_tot - alternative)/alternative)*100,
+         knn_percent_error_tot = abs((knn_prediction_tot - alternative)/alternative)*100, 
+         tree_percent_error_tot = abs((tree_prediction_tot - alternative)/alternative)*100,
+         forrest_percent_error_tot = 
+           abs((forrest_prediction_tot - alternative)/alternative)*100) %>%
+  arrange(desc(knn_percent_error_tot))
+d <- data.frame(
+"total_KNN_errror"  = mean(error_analysis$knn_percent_error_tot),
+"total_linear_regression_errror" = mean(error_analysis$reg_percent_error_tot),
+"total_decsion_tree_errror" = mean(error_analysis$tree_percent_error_tot), 
+"total_forrest_errror" = mean(error_analysis$forrest_percent_error_tot))
+t(d)
+
+```
+
+Random Forrest does not include incentives: actually make it less accurate 
+
+Linear regression is the only one that gets more accurate with the addition of incentives
+
+KNN is just a straigt line so it is not adaptive
+
+
+
+```{r prediction sumarry}
+print("regression analysis summary")
+summary(reg_train_rel)
+print("knn(5) analysis summary")
+summary(knn_train_rel)
+print("Decision Tree summary")
+summary(tree_train_tot)
+print("Random Forrest Summary")
+summary(forrest_tot)
+varImpPlot(forrest_tot)
+
+plot(forrest_tot)
+
+```
+
+```{r plots of sales, message=FALSE}
+ggplot(data = data) + geom_boxplot(aes(x = fct_reorder(state, alternative, .desc = TRUE), y = alternative)) + ggtitle("Total Sales By State") + xlab("State") + ylab("Total Alternative Monthly Sales")
+
+data %>%
+  ggplot(aes(x = alternative)) + geom_histogram(aes(y = ..density..),
+                 fill = "white",
+                 color = "black") +
+  geom_density(fill = "cornflowerblue", alpha = 0.5) + geom_vline(xintercept = mean(data$alternative), color = "green", size = 2) + xlab("Alternative Fuel Vehicle Sales") + ggtitle("Histogram of Alternative Fuel Vehicle Sales")
+
+top_5 <- data %>%
+  group_by(state, state_full) %>%
+  summarise(avg_sales = mean(alternative)) %>%
+  ungroup() %>%
+  top_n(8, avg_sales) %>%
+  arrange(desc(avg_sales))
+
+data %>%
+  filter(state %in% top_5$state) %>%
+  ggplot(aes(x = timestamp, y = alternative)) + geom_line(aes(color = state)) + ggtitle("Monthly Alternative Vehicle: Top 5 States")
+top_5 %>%
+  select(state_full, avg_sales)
+
+data %>%
+  group_by(state, state_full) %>%
+  summarise(avg_sd = sd(alternative), avg_sales = mean(alternative)) %>%
+  mutate(sd_vs_mean = avg_sd/avg_sales)%>%
+  ungroup() %>%
+  top_n(5, avg_sd) %>%
+  arrange(desc(avg_sd))
+
+data %>%
+  group_by(state, state_full) %>%
+  summarise(avg_sd = sd(alternative), avg_sales = mean(alternative)) %>%
+  mutate(sd_vs_mean = avg_sd/avg_sales)%>%
+  ungroup() %>%
+  top_n(5, sd_vs_mean) %>%
+  arrange(desc(sd_vs_mean))
+
+```
+
+
+```{r correlation plots}
+data1 <- data %>%
+  dplyr::select(alternative, Total_Population, Median_Household_Income , Median_Home_Value , pop_per_sq_mi, yearly_gas_spending ,  miles_traveled_less_10000 , last_car_less_4000)
+names(data1)[2] <- "Pop"
+names(data1)[3] <- "Income"
+names(data1)[4] <- "Home Value"
+names(data1)[5] <- "Pop per sqmi"
+names(data1)[6] <- "Spent on gas"
+names(data1)[7] <- "Car Usage"
+names(data1)[8] <- "Price of Car"
+
+
+
+data2 <- data %>%
+  filter(state == "CA")%>%
+  dplyr::select(alternative, year, month, timestamp, average_price, temp, Region)
+data3 <- data %>%
+  dplyr::select(alternative, Exem_total:Loans_Total)
+
+ggscatmat(data1,columns=1:ncol(data1),corMethod="pearson") + ggtitle("Analysis of Correlation for Demographic Data")
+
+ggscatmat(data2,columns=1:ncol(data2),corMethod="pearson") + ggtitle("Analysis of Correlation for California")
+
+ggscatmat(data3,columns=1:ncol(data2),corMethod="pearson") + ggtitle("Analysis of Correlation for Incentives")
+
+
+```
+
+```{r error distribution, message=FALSE}
+error_analysis %>%
+  filter(reg_percent_error_tot <1000) %>%
+  ggplot(aes(x = reg_percent_error_tot)) + geom_histogram(aes(y = ..density..),
+                 fill = "white",
+                 color = "black") + 
+  geom_density(fill = "cornflowerblue", alpha = 0.5) + geom_vline(xintercept = mean(error_analysis$reg_percent_error_tot), color = "green", size = 2) 
+
+mean(error_analysis$reg_percent_error_tot, trim = .2)
+
+```
+```{r, message=FALSE}
+ggplot(data = error_analysis, aes(x =forrest_percent_error_tot)) + 
+  geom_histogram(aes( y = ..density..),
+                 fill = "white",
+                 color = "black") + 
+  geom_density(fill = "cornflowerblue", alpha = 0.5) + geom_vline(xintercept = mean(error_analysis$forrest_percent_error_tot), color = "green", size = 2) + xlab("Random Forrest Error") + ggtitle("Histogram of Random Forrest Error")
+
+error_analysis %>%
+  group_by(state, state_full) %>%
+  summarise(forrest_error_avg = mean(forrest_percent_error_tot)) %>%
+  arrange(desc(forrest_error_avg))
+
+data %>% 
+  left_join(error_analysis %>% select(timestamp, forrest_prediction_tot, knn_prediction_tot, state), by = c("timestamp", "state")) %>%
+  filter(year == 2019) %>%
+  group_by(timestamp) %>%
+  summarise(alternative_sales = sum(alternative), forrest_prediction = sum(forrest_prediction_tot), kkn_prediction =  sum(knn_prediction_tot)) %>%
+  pivot_longer(cols = c(alternative_sales,forrest_prediction, kkn_prediction), names_to = "Sale_Type", values_to = "Sales") %>%
+  filter(Sale_Type != "kkn_prediction")%>%
+  drop_na() %>%
+  ggplot() + geom_line(aes(x = timestamp, y = Sales, color = Sale_Type)) + xlab("Date") +
+  ggtitle("Sales vs Prediction")
+
+```
+
