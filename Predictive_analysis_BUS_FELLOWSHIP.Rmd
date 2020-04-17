@@ -18,6 +18,7 @@ library(caret)
 library(party)
 library(randomForest)
 library(GGally)
+library(gam)
 
 
 ```
@@ -73,15 +74,17 @@ testing_data <- data %>%
 ```{r model training}
 reg_train_rel = lm(relative ~ (timestamp) + average_price + temp + Total_Population + Median_Household_Income + Median_Home_Value + pop_per_sq_mi+ yearly_gas_spending +  miles_traveled_less_10000 + last_car_less_4000 + Region + Exem_total + Rebate_total + Tax_total + GNT_total + Other_Total + Loans_Total, data = training_data)
 
-reg_train_tot = lm(alternative ~ timestamp + average_price + temp + Total_Population + Median_Household_Income + Median_Home_Value + pop_per_sq_mi+ yearly_gas_spending +  miles_traveled_less_10000 + last_car_less_4000 + Region + Exem_total + Rebate_total + Tax_total + GNT_total + Other_Total + Loans_Total, data = training_data)
+reg_train_tot = lm(alternative ~ state + timestamp + average_price + temp + Total_Population + Median_Household_Income + Median_Home_Value + pop_per_sq_mi+ yearly_gas_spending +  miles_traveled_less_10000 + last_car_less_4000 + Region + Exem_total + Rebate_total + Tax_total + GNT_total + Other_Total + Loans_Total, data = training_data)
 
 knn_train_rel <- knnreg(relative ~ timestamp + average_price + temp + Total_Population + Median_Household_Income + Median_Home_Value + pop_per_sq_mi+ yearly_gas_spending +  miles_traveled_less_10000 + last_car_less_4000 + Region + Exem_total + Rebate_total + Tax_total + GNT_total + Other_Total + Loans_Total, data = training_data, k = 5)
 
-knn_train_tot <- knnreg(alternative ~ month*year + average_price + temp + Total_Population + Median_Household_Income + Median_Home_Value + pop_per_sq_mi+ yearly_gas_spending +  miles_traveled_less_10000 + last_car_less_4000 + Region + Exem_total + Rebate_total + Tax_total + GNT_total + Other_Total + Loans_Total, data = training_data, k = 5)
+knn_train_tot <- knnreg(alternative ~ state + month*year + average_price + temp + Total_Population + Median_Household_Income + Median_Home_Value + pop_per_sq_mi+ yearly_gas_spending +  miles_traveled_less_10000 + last_car_less_4000 + Region + Exem_total + Rebate_total + Tax_total + GNT_total + Other_Total + Loans_Total, data = training_data, k = 5)
 
 tree_train_tot <- ctree(alternative ~ as.numeric(timestamp) + average_price + temp + Total_Population + Median_Household_Income + Median_Home_Value + pop_per_sq_mi+ yearly_gas_spending +  miles_traveled_less_10000 + last_car_less_4000 + as.factor(Region) + Exem_total + Rebate_total + Tax_total + GNT_total + Other_Total + Loans_Total,data = training_data)
 
-forrest_tot <- randomForest(alternative ~   average_price + temp + Total_Population + Median_Household_Income + Median_Home_Value + pop_per_sq_mi+ yearly_gas_spending +  miles_traveled_less_10000 + last_car_less_4000 ,data = training_data, mtry = 4, ntree = 500)
+forrest_tot <- randomForest(alternative ~   average_price + temp + Total_Population + Median_Household_Income + Median_Home_Value + pop_per_sq_mi+ yearly_gas_spending +  miles_traveled_less_10000 + last_car_less_4000 ,data = training_data, mtry = 4, ntree = 5)
+
+gam_fit = gam(alternative~ state + month +  average_price + temp + Exem_total + Rebate_total + Tax_total + GNT_total + Other_Total + Loans_Total, data = training_data)
 ```
 ```{r error analysis}
 error_analysis <- testing_data %>% 
@@ -90,22 +93,25 @@ error_analysis <- testing_data %>%
          reg_prediction_tot = predict(reg_train_tot, newdata = testing_data), 
          knn_prediction_tot = predict(knn_train_tot, newdata = testing_data), 
          tree_prediction_tot =predict(tree_train_tot, newdata = testing_data),
-         forrest_prediction_tot = predict(forrest_tot, newdata = testing_data)) %>%
+         forrest_prediction_tot = predict(forrest_tot, newdata = testing_data), 
+         gam_prediction_tot = predict(gam_fit, newdata = testing_data)) %>%
   select(state, timestamp, state_full, year, month, alternative,reg_prediction_rel, knn_prediction_rel, relative,
-         reg_prediction_tot,knn_prediction_tot, tree_prediction_tot, forrest_prediction_tot) %>%
+         reg_prediction_tot,knn_prediction_tot, tree_prediction_tot, forrest_prediction_tot, gam_prediction_tot) %>%
   mutate(reg_percent_error_rel = abs((reg_prediction_rel - relative)/relative)*100,
          knn_percent_error_rel = abs((knn_prediction_rel - relative)/relative)*100, 
          reg_percent_error_tot = abs((reg_prediction_tot - alternative)/alternative)*100,
          knn_percent_error_tot = abs((knn_prediction_tot - alternative)/alternative)*100, 
          tree_percent_error_tot = abs((tree_prediction_tot - alternative)/alternative)*100,
          forrest_percent_error_tot = 
-           abs((forrest_prediction_tot - alternative)/alternative)*100) %>%
+           abs((forrest_prediction_tot - alternative)/alternative)*100,
+         gam_percent_error_tot = ((gam_prediction_tot - alternative)/alternative)*100) %>%
   arrange(desc(knn_percent_error_tot))
 d <- data.frame(
 "total_KNN_errror"  = mean(error_analysis$knn_percent_error_tot),
 "total_linear_regression_errror" = mean(error_analysis$reg_percent_error_tot),
 "total_decsion_tree_errror" = mean(error_analysis$tree_percent_error_tot), 
-"total_forrest_errror" = mean(error_analysis$forrest_percent_error_tot))
+"total_forrest_errror" = mean(error_analysis$forrest_percent_error_tot), 
+"gam_error" = mean(error_analysis$gam_percent_error_tot))
 t(d)
 
 ```
