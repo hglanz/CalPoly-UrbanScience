@@ -1,0 +1,124 @@
+---
+title: "Modeling Project"
+author: "Jenna Eisenman"
+date: "May 6, 2020"
+output: html_document
+---
+```{r option, include=FALSE}
+library(tidyverse)
+library(forecast)
+library(readxl)
+```
+```{ca_midsize}
+#ca midsize - data includes unemployment
+ca_midsize <- read.csv("C:/Users/owner/Desktop/Bus Analytics/ca_midsize.csv")
+ca_mid = ts(ca_midsize$volume, start=c(2010, 1), end=c(2020,1), frequency=4)
+ca_mid_train = window(ca_mid, end=c(2018, 4))
+ca_mid_test = window(ca_mid, start=c(2019, 1))
+```
+```{r ca_reg}
+reg_ca_mid = tslm(ca_mid ~ poly(trend, 2) + season + rate_nsa, data=ca_midsize)
+summary(reg_ca_mid)
+plot(ca_mid)
+points(reg_ca_mid$fitted.values, type="l", col="blue")
+```
+```{r unemployment}
+unemp = ts(ca_midsize$rate_nsa, start=c(2010, 1), end=c(2020,1), frequency=4)
+unemp_train = window(unemp, end=c(2018, 4))
+unemp_test = window(unemp, start=c(2019, 1))
+```
+```{r arima_xreg}
+arima_ca_xreg = auto.arima(ca_mid_train,xreg=unemp_train)
+summary(arima_ca_xreg)
+ca_mid_fit = ts(fitted(arima_ca_xreg)[-1], start=c(2010,1), end=c(2018, 3), frequency=4)
+arima_ca_mid_pred = forecast(arima_ca_xreg, xreg=unemp_test, h=1)
+summary(arima_ca_xreg)
+plot(ca_mid)
+points(arima_ca_mid_pred$mean, type='l', col="red")
+points(ca_mid_fit, type='l', col='blue')
+```
+```{r arima_plot_xreg}
+plot(ca_mid,xlim=c(2010, 2021), ylim=c(40000,100000),ylab ="Midsize Cars Sold" ,yaxt="n", type='l', col="black")
+points(ca_mid_fit, type='l', col='blue')
+points(arima_ca_mid_pred$mean, col="red")
+axis(2, at=seq(from=40000, to=101000, length.out = 5))
+title(main="Midsize Cars Sold in California")
+mtext("Using ARIMA(0,1,0) - Random Walk", 3, col="blue")
+text(locator(1), "2019 Forecast")
+```
+```{r full_model_plot}
+arima_ca_full = auto.arima(ca_mid)
+summary(arima_ca_full)
+ca_full_pred = forecast(arima_ca_full, h=1)
+ca_full_fit = ts(fitted(arima_ca_full)[-1], start=c(2010,1), end=c(2018, 3), frequency=4)
+plot(ca_mid, yaxt="n")
+points(ca_full_fit, type="l", col="blue")
+points(ca_full_pred$mean, col="red")
+axis(2, at=seq(from=40000, to=101000, length.out = 5))
+title(main="Midsize Cars Sold in California")
+mtext("Using ARIMA(0,1,0) - Random Walk (No covariates)", 3, col="blue")
+text(locator(1), "2020 Forecast")
+```
+```{r tx_midsize}
+#texas midsize
+tx_midsize <- read.csv("C:/Users/owner/Desktop/Bus Analytics/tx_midsize.csv")
+tx_mid = ts(tx_midsize$volume, start=c(2010, 1), end=c(2020,1), frequency=4)
+plot(tx_mid)
+reg_tx_mid = tslm(tx_mid~ poly(trend, 2, raw=TRUE) + season + rate_nsa, data=tx_midsize)
+summary(reg_tx_mid)
+plot(tx_mid)
+points(reg_tx_mid$fitted.values, type="l", col="blue")
+```
+```{r tx_midsize}
+#tx midsize test n train
+tx_mid_train = window(tx_mid, end=c(2018, 4))
+tx_mid_test = window(tx_mid, start=c(2019, 1))
+unemp_tx = ts(tx_midsize$rate_nsa, start=c(2010, 1), end=c(2020,1), frequency=4)
+unemp_tx_train = window(unemp_tx, end=c(2018, 4))
+unemp_tx_test = window(unemp_tx, start=c(2019, 1))
+#me trying to figure out how to get predictions with testing data 
+test_ts = ts(c(tx_mid_test, unemp_tx_test))
+r_tx_train = tslm(tx_mid_train ~ trend + I(trend^2) + season + unemp_tx_train)
+test = tslm(tx_mid_test ~ trend + I(trend^2) + season + unemp_tx_test)
+test_frame =data.frame(test$model)
+test_frame= test_frame %>%
+  rename(unemp_tx_train = unemp_tx_test,
+         tx_mid_train = tx_mid_test)
+r_tx_pred = forecast(r_tx_train, h=5, newdata=test_frame)
+#it didn't work
+summary(r_tx_train)
+plot(tx_mid)
+points(fitted(r_tx_train), type="l", col="blue")
+points(r_tx_pred,x=time(tx_mid_train), type="l", col="red")
+
+```
+```{r tx_arima}
+#idk texas arima bc im done w tslm
+tx_arima_train = auto.arima(tx_mid_train, xreg=unemp_tx_train)
+tx_arima_t = auto.arima(tx_mid_train)
+summary(tx_arima_train)
+summary(tx_arima_t)
+plot(tx_mid)
+points(fitted(tx_arima_train), type="l", col="blue")
+points(fitted(tx_arima_t), type="l", col="red")
+```
+```{ny_midsize}
+#ny midsize
+ny_midsize <- read.csv("C:/Users/owner/Desktop/Bus Analytics/ny_midsize.csv")
+ny_mid = ts(ny_midsize$volume, start=c(2010, 1), end=c(2020,1), frequency=4)
+plot(ny_mid)
+#regression to start
+reg_ny_mid = tslm(ny_mid~ trend+ season)
+summary(reg_ny_mid)
+points(reg_ny_mid$fitted.values, type="l", col="blue")
+#arima
+ny_ar = arima(ny_mid, order=c(1,1,0))
+summary(ny_ar)
+points(fitted(ny_ar), type="l", col="blue")
+preds = forecast(ny_ar, h=4)
+fits = fitted(ny_ar)[-1]
+fits = c(fits, preds$mean)
+fits = ts(fits, start=c(2010, 1), end=c(2020,4), frequency=4)
+plot(fits, ylim=c(15000,60000),type="l", col="blue")
+points(ny_mid, type="l")
+
