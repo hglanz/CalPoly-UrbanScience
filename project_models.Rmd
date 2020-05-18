@@ -1,0 +1,148 @@
+---
+title: "Models for Project"
+author: "Jenna Eisenman"
+date: "May 13, 2020"
+output: html_document
+---
+
+```{r options, include=FALSE}
+library(tidyverse)
+library(forecast)
+library(readxl)
+```
+
+```{r ca_midsize}
+#ca midsize - data includes unemployment & gdp
+library(readxl)
+ca_midsize <- read_excel("C:/Users/owner/Desktop/Bus Analytics/ca_midsize.xlsx", 
+    sheet = "ca_midsize")
+ca_xreg <- read_excel("C:/Users/owner/Desktop/Bus Analytics/ca_midsize.xlsx", 
+    sheet = "ca_xreg")
+cxreg = cbind(gdp=ca_xreg$gdp, unemp=ca_xreg$unemployment_nsa)
+
+ca_mid = ts(ca_midsize$volume, start=c(2010, 1), end=c(2020,1), frequency=4)
+ca_mid_train = window(ca_mid, end=c(2018, 4))
+ca_mid_test = window(ca_mid, start=c(2019, 1))
+xcam_train = cxreg[1:36,]
+xcam_test = cxreg[37:41,]
+xcam_preds = cxreg[42:44,]
+
+ca_mid_arima = Arima(ca_mid_train, order=c(1,0,0), xreg=xcam_train)
+summary(ca_mid_arima)
+cmid_pred = forecast(ca_mid_arima, xreg=xcam_test)
+plot(ca_mid)
+points(ca_mid_arima$fitted, type="l", col="blue")
+points(cmid_pred$mean, type='l', col='red')
+perc_error_cam= ((abs(ca_mid_test-cmid_pred$mean))/ca_mid_test)*100
+mean(perc_error_cam) #13.01184%
+
+
+#preds for full model
+c_mids_full = auto.arima(ca_mid, xreg = xreg_camidsize[1:41,])
+c_mids_pred = predict(c_mids_full, h=3, newxreg=xcam_preds)
+plot(ca_mid,xlim=c(2010, 2021), ylim=c(25000, 101000))
+points(fitted(c_mids_full), type='l', col='blue')
+points(c_mids_pred$pred, type='l', col='purple')
+#a visualization
+plot(ca_mid, ylim=c(25000, 101000), xlim=c(2010, 2021), ylab="Midsize Cars Sold")
+title(main="Midsize Cars in California")
+mtext("Using ARIMA(1,0,0)", 3, col="black")
+points(cmid_pred$mean, type='l', col='purple')
+points(c_mids_pred$pred, type='l', col='red')
+text(locator(1), "2019 Forecasts with Training Data", col="purple")
+text(locator(1), "2020 Forecasts with Full Data", col="red")
+```
+
+
+```{r ca_truck}
+#california truck moment
+#
+ca_truck <- read.csv("C:/Users/owner/Desktop/Bus Analytics/ca_truck.csv")
+ctruck = ts(ca_truck$volume, start=c(2010, 1), end=c(2020,1), frequency=4)
+#tsa - test n train
+ctruck_train = window(ctruck, end=c(2018, 4))
+ctruck_test = window(ctruck, start=c(2019, 1))
+acf(ctruck)
+xreg = cbind(unemp=ca_truck$unemployment_nsa, gdp=ca_truck$gdp)
+xreg_train = xreg[1:36,]
+xreg_test = xreg[37:41,]
+c_truck_arima = auto.arima(ctruck_train, xreg=xreg_train)
+summary(c_truck_arima)
+truck_arima_pred=forecast(c_truck_arima, xreg=xreg_test)
+plot(ctruck, ylim=c(80000,290000))
+points(c_truck_arima$fitted, type='l', col='blue')
+points(truck_arima_pred$mean, type='l', col='red')
+perc_error= ((abs(ctruck_test-truck_arima_pred$mean))/ctruck_test)*100 #14.79%
+#preds for full model
+c_truck_full = arima(ctruck,order=c(1,0,0), seasonal=c(0,1,1))
+c_truck_pred = forecast(c_truck_full, h=3)
+#a visualization
+plot(ctruck, ylim=c(80000,300000), xlim=c(2010, 2021), ylab="Trucks Sold")
+title(main="Trucks Sold in California")
+mtext("Using ARIMA(1,0,0)(0,1,1)", 3, col="black")
+points(truck_arima_pred$mean, type='l', col='purple')
+points(c_truck_pred$mean, type='l', col='red')
+text(locator(1), "2019 Forecasts with Training Data", col="purple")
+text(locator(1), "2020 Forecasts with Full Data", col="red")
+```
+```{r ca_luxe}
+ca_luxe <- read.csv("C:/Users/owner/Desktop/Bus Analytics/ca_luxe_car.csv")
+cluxe = ts(ca_luxe$volume, start=c(2010, 1), end=c(2020,1), frequency=4)
+plot(cluxe)
+#tsa - test n train
+cluxe_train = window(cluxe, end=c(2018, 4))
+cluxe_test = window(cluxe, start=c(2019, 1))
+acf(cluxe)
+xreg = cbind(unemp=ca_truck$unemployment_nsa, gdp=ca_truck$gdp)
+xreg_train = xreg[1:36,]
+xreg_test = xreg[37:41,]
+cal_train = auto.arima(cluxe_train, xreg=xreg_train) #ARIMA(1,0,1)(0,1,0)
+summary(cal_train)
+cal_pred = forecast(cal_train, h=5, xreg=xreg_test)
+perc_error= ((abs(cluxe_test-cal_pred$mean))/cluxe_test)*100 #18.72487%
+mean(perc_error)
+plot(cluxe, ylim=c(9000, 60000))
+points(cal_pred$mean, type="l", col='purple')
+#predictions with full model
+c_luxe_full = arima(cluxe,order=c(1,0,1), seasonal=c(0,1,0))
+c_luxe_pred = forecast(c_luxe_full, h=3)
+#a visualization
+plot(cluxe, ylim=c(9000, 63000), xlim=c(2010, 2021), ylab="Luxury Cars Sold")
+title(main="Luxury Cars Sold in California")
+mtext("Using ARIMA(1,0,1)(0,1,0)", 3, col="black")
+points(cal_pred$mean, type='l', col='purple')
+points(c_luxe_pred$mean, type='l', col='red')
+text(locator(1), "2019 Forecasts with Training Data", col="purple")
+text(locator(1), "2020 Forecasts with Full Data", col="red")
+```
+```{r ny_midsize}
+ny_mid <- read.csv("C:/Users/owner/Desktop/Bus Analytics/ca_luxe_car.csv")
+nmid = ts(ny_mid$volume, start=c(2010, 1), end=c(2020,1), frequency=4)
+plot(nmid)
+#tsa - test n train
+nmid_train = window(nmid, end=c(2018, 4))
+nmid_test = window(nmid, start=c(2019, 1))
+acf(nmid)
+nxreg = cbind(unemp=ny_mid$unemployment_nsa, gdp=ny_mid$gdp)
+nxreg_train = nxreg[1:36,]
+nxreg_test = nxreg[37:41,]
+nym_train = auto.arima(nmid_train, xreg=nxreg_train) #ARIMA(1,0,1)(0,1,0)
+summary(nym_train) #ARIMA(1,1,0)(0,1,1)
+#pred with training
+nym_pred = forecast(nym_train, h=5, xreg=nxreg_test)
+perc_error= ((abs(nmid_test-nym_pred$mean))/nmid_test)*100 #9.200842%
+mean(perc_error)
+plot(nmid, ylim=c(19000, 66000))
+points(nym_pred$mean, type="l", col='purple')
+#predictions with full model
+nmid_full = arima(nmid,order=c(1,1,0), seasonal=c(0,1,1))
+nmid_pred = forecast(nmid_full, h=3)
+#a visualization
+plot(nmid, ylim=c(19000, 66000), xlim=c(2010, 2021), ylab="Midsize Cars Sold")
+title(main="Midsize Cars Sold in New York")
+mtext("Using ARIMA(1,1,0)(0,1,1)", 3, col="black")
+points(nym_pred$mean, type='l', col='purple')
+points(nmid_pred$mean, type='l', col='red')
+text(locator(1), "2019 Forecasts with Training Data", col="purple")
+text(locator(1), "2020 Forecasts with Full Data", col="red")
+```
