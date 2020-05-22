@@ -10,14 +10,30 @@ library(tidyverse)
 library(forecast)
 library(readxl)
 ```
+```{r connection}
+db_name <- "urban"
+db_user <- "admin"
+db_password <- "rmkowdq0d21k"
+db_host <- "urbanscience.ctvc9uabmnlo.us-west-2.rds.amazonaws.com"
+db_port <- 3306
+library(RMySQL)
+conn <- dbConnect(
+  RMariaDB::MariaDB(),
+  dbname = db_name,
+  username = db_user,
+  password = db_password,
+  host = "127.0.0.1",
+  port = 7787
+)
+#ssh -i 'C:\Users\owner\Desktop\Bus Analytics\urban_science_key_pair.pem' ec2-user@ec2-34-214-166-59.us-west-2.compute.amazonaws.com -L 7787:urbanscience.ctvc9uabmnlo.us-west-2.rds.amazonaws.com:3306
+
+```
 
 ```{r ca_midsize}
 #ca midsize - data includes unemployment & gdp
 library(readxl)
-ca_midsize <- read_excel("C:/Users/owner/Desktop/Bus Analytics/ca_midsize.xlsx", 
-    sheet = "ca_midsize")
-ca_xreg <- read_excel("C:/Users/owner/Desktop/Bus Analytics/ca_midsize.xlsx", 
-    sheet = "ca_xreg")
+ca_midsize <- read_excel("C:/Users/owner/Desktop/Bus Analytics/ca_midsize.xlsx")
+ca_xreg <- read_excel("C:/Users/owner/Desktop/Bus Analytics/ca_xregs.xlsx")
 cxreg = cbind(gdp=ca_xreg$gdp, unemp=ca_xreg$unemployment_nsa)
 
 ca_mid = ts(ca_midsize$volume, start=c(2010, 1), end=c(2020,1), frequency=4)
@@ -27,19 +43,32 @@ xcam_train = cxreg[1:36,]
 xcam_test = cxreg[37:41,]
 xcam_preds = cxreg[42:44,]
 
-ca_mid_arima = Arima(ca_mid_train, order=c(1,0,0), xreg=xcam_train)
+ca_mid_arima = Arima(ca_mid_train, order=c(1,1,0), xreg=xcam_train)
 summary(ca_mid_arima)
 cmid_pred = forecast(ca_mid_arima, xreg=xcam_test)
 plot(ca_mid)
 points(ca_mid_arima$fitted, type="l", col="blue")
 points(cmid_pred$mean, type='l', col='red')
 perc_error_cam= ((abs(ca_mid_test-cmid_pred$mean))/ca_mid_test)*100
-mean(perc_error_cam) #13.01184%
-
+mean(perc_error_cam) #11.46%
 
 #preds for full model
-c_mids_full = auto.arima(ca_mid, xreg = xreg_camidsize[1:41,])
-c_mids_pred = predict(c_mids_full, h=3, newxreg=xcam_preds)
+#make our scenarios
+xcamgdp = data.frame(xcam_preds)$gdp
+xcamunemp = data.frame(xcam_preds)$unemp
+xc_worst = NULL
+xc_worst$gdp = xcamgdp-xcamgdp*0.05 
+xc_worst$unemp = xcamunemp+xcamunemp*0.05
+xc_worst = matrix(c(xc_worst$gdp, xc_worst$unemp), nrow=3, ncol=2, dimnames=list(c(), c('gdp', 'unemp')))
+
+xc_best = NULL
+xc_best$gdp = xcamgdp+xcamgdp*0.05
+xc_best$unemp = xcamunemp-xcamunemp*0.05
+xc_best = matrix(c(xc_best$gdp, xc_best$unemp), nrow=3, ncol=2, dimnames=list(c(), c('gdp', 'unemp')))
+
+
+c_mids_full = Arima(ca_mid,order=c(1,1,0), xreg = cxreg[1:41,])
+c_mids_pred = predict(c_mids_full, h=3, newxreg=xcam_preds_worst)
 plot(ca_mid,xlim=c(2010, 2021), ylim=c(25000, 101000))
 points(fitted(c_mids_full), type='l', col='blue')
 points(c_mids_pred$pred, type='l', col='purple')
@@ -63,25 +92,32 @@ ctruck = ts(ca_truck$volume, start=c(2010, 1), end=c(2020,1), frequency=4)
 ctruck_train = window(ctruck, end=c(2018, 4))
 ctruck_test = window(ctruck, start=c(2019, 1))
 acf(ctruck)
-xreg = cbind(unemp=ca_truck$unemployment_nsa, gdp=ca_truck$gdp)
-xreg_train = xreg[1:36,]
-xreg_test = xreg[37:41,]
-c_truck_arima = auto.arima(ctruck_train, xreg=xreg_train)
+
+xcat_train = cxreg[1:36,] #same xregs as ca midsize
+xcat_test = cxreg[37:41,]
+xcat_preds = cxreg[42:44,]
+
+c_truck_arima = auto.arima(ctruck_train, xreg=xcat_train)
 summary(c_truck_arima)
-truck_arima_pred=forecast(c_truck_arima, xreg=xreg_test)
+truck_arima_pred=forecast(c_truck_arima, xreg=xcat_test)
 plot(ctruck, ylim=c(80000,290000))
 points(c_truck_arima$fitted, type='l', col='blue')
 points(truck_arima_pred$mean, type='l', col='red')
 perc_error= ((abs(ctruck_test-truck_arima_pred$mean))/ctruck_test)*100 #14.79%
 #preds for full model
-c_truck_full = arima(ctruck,order=c(1,0,0), seasonal=c(0,1,1))
-c_truck_pred = forecast(c_truck_full, h=3)
+c_truck_full = arima(ctruck,order=c(1,0,0), seasonal=c(0,1,1),xreg=cxreg[1:41,])
+c_truck_pred = predict(c_truck_full, h=3, newxreg=xcat_preds)
+#scenarios
+c_truck_worst = predict(c_truck_full, h=3, newxreg=xc_worst)
+c_truck_best = predict(c_truck_full, h=3, newxreg=xc_best)
 #a visualization
-plot(ctruck, ylim=c(80000,300000), xlim=c(2010, 2021), ylab="Trucks Sold")
+plot(ctruck, ylim=c(2500,300000), xlim=c(2010, 2021), ylab="Trucks Sold")
 title(main="Trucks Sold in California")
 mtext("Using ARIMA(1,0,0)(0,1,1)", 3, col="black")
 points(truck_arima_pred$mean, type='l', col='purple')
-points(c_truck_pred$mean, type='l', col='red')
+points(c_truck_pred$pred, type='l', col='red')
+points(c_truck_best$pred, type='l', col='green')
+points(c_truck_worst$pred, type='l', col='blue')
 text(locator(1), "2019 Forecasts with Training Data", col="purple")
 text(locator(1), "2020 Forecasts with Full Data", col="red")
 ```
